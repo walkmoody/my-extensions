@@ -144,6 +144,12 @@ function startClock() {
   const clockEl = document.getElementById("clock");
   if (!clockEl) return;
 
+  function wrapLetters(text) {
+    return text.split('').map(ch =>
+      `<span class="vp-letter" style="display:inline-block">${ch}</span>`
+    ).join('');
+  }
+
   function update() {
     const now = new Date();
     const time = now.toLocaleTimeString([], {
@@ -152,11 +158,78 @@ function startClock() {
       hour12: true
     }).replace(/\s*(AM|PM)/i, "");
 
-    clockEl.textContent = time;
+    clockEl.innerHTML = wrapLetters(time);
   }
 
-  update();                 // run immediately
-  setInterval(update, 1000); // update every second
+  update();
+  setInterval(update, 1000);
+
+  initVariableProximity(clockEl, {
+    fromFontVariationSettings: "'wght' 600, 'opsz' 9",
+    toFontVariationSettings: "'wght' 1300, 'opsz' 40",
+    radius: 120,
+    falloff: 'linear'
+  });
+}
+
+
+function initVariableProximity(containerEl, {
+  fromFontVariationSettings = "'wght' 300, 'opsz' 9",
+  toFontVariationSettings = "'wght' 900, 'opsz' 40",
+  radius = 150,
+  falloff = 'linear'
+} = {}) {
+  function parseSettings(str) {
+    return new Map(str.split(',').map(s => {
+      const [name, value] = s.trim().split(' ');
+      return [name.replace(/['"]/g, ''), parseFloat(value)];
+    }));
+  }
+
+  const fromMap = parseSettings(fromFontVariationSettings);
+  const toMap = parseSettings(toFontVariationSettings);
+  const axes = Array.from(fromMap.entries()).map(([axis, from]) => ({
+    axis, from, to: toMap.get(axis) ?? from
+  }));
+
+  let mouseX = 0, mouseY = 0;
+  window.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+
+  function calcFalloff(distance) {
+    const norm = Math.min(Math.max(1 - distance / radius, 0), 1);
+    switch (falloff) {
+      case 'exponential': return norm ** 2;
+      case 'gaussian': return Math.exp(-((distance / (radius / 2)) ** 2) / 2);
+      default: return norm;
+    }
+  }
+
+  function tick() {
+    const containerRect = containerEl.getBoundingClientRect();
+    const relX = mouseX - containerRect.left;
+    const relY = mouseY - containerRect.top;
+
+    containerEl.querySelectorAll('.vp-letter').forEach(span => {
+      const rect = span.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2 - containerRect.left;
+      const cy = rect.top + rect.height / 2 - containerRect.top;
+      const dist = Math.sqrt((relX - cx) ** 2 + (relY - cy) ** 2);
+
+      if (dist >= radius) {
+        span.style.fontVariationSettings = fromFontVariationSettings;
+        return;
+      }
+
+      const f = calcFalloff(dist);
+      span.style.fontVariationSettings = axes
+        .map(({ axis, from, to }) => `'${axis}' ${from + (to - from) * f}`)
+        .join(', ');
+    });
+
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
 }
 
 function initSplashCursor({
@@ -166,9 +239,9 @@ function initSplashCursor({
   VELOCITY_DISSIPATION = 2,
   PRESSURE = 0.1,
   PRESSURE_ITERATIONS = 20,
-  CURL = 3,
+  CURL = 2,
   SPLAT_RADIUS = 0.2,
-  SPLAT_FORCE = 6000,
+  SPLAT_FORCE = 3000,
   SHADING = true,
   COLOR_UPDATE_SPEED = 10,
   BACK_COLOR = { r: 0, g: 0, b: 0 },
